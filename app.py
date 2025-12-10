@@ -6,7 +6,7 @@ import RPi.GPIO as GPIO
 from monitor import get_all_stats
 
 GPIO.setmode(GPIO.BCM)
-FAN_PIN = 17
+FAN_PIN = 26
 GPIO.setup(FAN_PIN, GPIO.OUT)
 GPIO.output(FAN_PIN, GPIO.LOW)
 
