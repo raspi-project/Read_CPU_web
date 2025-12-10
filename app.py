@@ -1,58 +1,39 @@
 # app.py
-from flask import Flask, jsonify, render_template
-import threading
-import time
+from flask import Flask, jsonify, request, render_template
+from monitor import start_monitor, state, state_lock, TEMP_SAFE_THRESHOLD
 import RPi.GPIO as GPIO
-from monitor import get_all_stats
-
-GPIO.setmode(GPIO.BCM)
-FAN_PIN = 26
-GPIO.setup(FAN_PIN, GPIO.OUT)
-GPIO.output(FAN_PIN, GPIO.LOW)
 
 app = Flask(__name__, template_folder='.')
 
-fan_state = False  # false = off , true = on
-
-def auto_fan_control():
-    global fan_state
-    while True:
-        stats = get_all_stats()
-        temp = stats["temperature"]
-
-        if temp > 55:
-            GPIO.output(FAN_PIN, GPIO.HIGH)
-            fan_state = True
-        else:
-            GPIO.output(FAN_PIN, GPIO.LOW)
-            fan_state = False
-
-        time.sleep(2)
+# Start background monitor thread
+start_monitor()
 
 @app.route("/")
-def home():
-    return render_template("index.html")
+def index():
+    # Pass threshold to HTML
+    return render_template("index.html", threshold=TEMP_SAFE_THRESHOLD)
 
-@app.route("/api/data")
-def api_data():
-    stats = get_all_stats()
-    stats["fan_state"] = fan_state
-    return jsonify(stats)
+@app.route("/status")
+def status():
+    # Return all system info to the webpage
+    with state_lock:
+        return jsonify(state)
 
-@app.route("/fan/on")
-def fan_on():
-    global fan_state
-    GPIO.output(FAN_PIN, GPIO.HIGH)
-    fan_state = True
-    return jsonify({"fan": "ON"})
+@app.route("/set_fan", methods=["POST"])
+def set_fan():
+    data = request.json
+    manual = bool(data["manual_state"])  # true / false
 
-@app.route("/fan/off")
-def fan_off():
-    global fan_state
-    GPIO.output(FAN_PIN, GPIO.LOW)
-    fan_state = False
-    return jsonify({"fan": "OFF"})
+    with state_lock:
+        state["fan_manual_state"] = manual
+
+        # Fan updates immediately ONLY if temp < threshold
+        if not state["fan_forced_auto"]:
+            state["fan_actual_on"] = manual
+            GPIO.output(26, GPIO.HIGH if manual else GPIO.LOW)
+
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
-    threading.Thread(target=auto_fan_control, daemon=True).start()
-    app.run(host="0.0.0.0", port=5000)
+    # Flask server
+    app.run(host="0.0.0.0", port=5000, debug=False)
