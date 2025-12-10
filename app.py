@@ -1,36 +1,58 @@
 # app.py
-from flask import Flask, jsonify, request, render_template
-from monitor import start_monitor, state, state_lock, TEMP_SAFE_THRESHOLD
+from flask import Flask, jsonify, render_template
+import threading
+import time
 import RPi.GPIO as GPIO
+from monitor import get_all_stats
 
-app = Flask(__name__)
+GPIO.setmode(GPIO.BCM)
+FAN_PIN = 17
+GPIO.setup(FAN_PIN, GPIO.OUT)
+GPIO.output(FAN_PIN, GPIO.LOW)
 
-# Start background thread
-start_monitor()
+app = Flask(__name__, template_folder='.')
+
+fan_state = False  # false = off , true = on
+
+def auto_fan_control():
+    global fan_state
+    while True:
+        stats = get_all_stats()
+        temp = stats["temperature"]
+
+        if temp > 55:
+            GPIO.output(FAN_PIN, GPIO.HIGH)
+            fan_state = True
+        else:
+            GPIO.output(FAN_PIN, GPIO.LOW)
+            fan_state = False
+
+        time.sleep(2)
 
 @app.route("/")
-def index():
-    return render_template("index.html", threshold=TEMP_SAFE_THRESHOLD)
+def home():
+    return render_template("index.html")
 
-@app.route("/status")
-def status():
-    with state_lock:
-        return jsonify(state)
+@app.route("/api/data")
+def api_data():
+    stats = get_all_stats()
+    stats["fan_state"] = fan_state
+    return jsonify(stats)
 
-@app.route("/set_fan", methods=["POST"])
-def set_fan():
-    data = request.json
-    manual = bool(data["manual_state"])
+@app.route("/fan/on")
+def fan_on():
+    global fan_state
+    GPIO.output(FAN_PIN, GPIO.HIGH)
+    fan_state = True
+    return jsonify({"fan": "ON"})
 
-    with state_lock:
-        state["fan_manual_state"] = manual
-
-        # Only apply immediately if not in AUTO mode
-        if not state["fan_forced_auto"]:
-            state["fan_actual_on"] = manual
-            GPIO.output(26, GPIO.HIGH if manual else GPIO.LOW)
-
-    return jsonify({"ok": True})
+@app.route("/fan/off")
+def fan_off():
+    global fan_state
+    GPIO.output(FAN_PIN, GPIO.LOW)
+    fan_state = False
+    return jsonify({"fan": "OFF"})
 
 if __name__ == "__main__":
+    threading.Thread(target=auto_fan_control, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)
