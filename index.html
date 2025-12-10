@@ -1,51 +1,67 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Sirvi Raspberry Pi Monitor</title>
-    <meta http-equiv="refresh" content="5">
+<title>Sirvi Pi Monitor Dashboard</title>
+<style>
+  body { font-family: Arial; margin: 20px; }
+  .card { padding: 15px; margin-bottom: 10px; box-shadow: 0 0 5px #aaa; border-radius: 8px; width: 350px; }
+</style>
 </head>
-<body style="font-family:Arial; padding:20px;">
-<h1>Raspberry Pi System Monitor</h1>
+<body>
 
-<div>
-    <p><b>Temperature:</b> <span id="temp"></span> °C</p>
-    <p><b>Total RAM:</b> <span id="tram"></span> MB</p>
-    <p><b>Used RAM:</b> <span id="uram"></span> MB</p>
-    <p><b>RAM Usage:</b> <span id="ramp"></span> %</p>
+<h2>Raspberry Pi Monitor</h2>
 
-    <p><b>Total Disk:</b> <span id="tdisk"></span> GB</p>
-    <p><b>Used Disk:</b> <span id="udisk"></span> GB</p>
-    <p><b>Disk Usage:</b> <span id="diskp"></span> %</p>
-
-    <p><b>Fan State:</b> <span id="fan"></span></p>
+<div class="card">
+  <p>CPU: <span id="cpu">--</span></p>
+  <p>Temperature: <span id="temp">--</span></p>
 </div>
 
-<button onclick="fanOn()">Turn Fan ON</button>
-<button onclick="fanOff()">Turn Fan OFF</button>
+<div class="card">
+  <p>RAM: <span id="ram">--</span></p>
+  <p>Disk: <span id="disk">--</span></p>
+</div>
+
+<div class="card">
+  <p><b>Fan Status: <span id="fan_state">--</span></b></p>
+
+  <label>
+    <input type="checkbox" id="fan_manual_switch">
+    Manual Fan Control
+  </label>
+  <button id="apply">Apply</button>
+
+  <p style="color:#666; font-size:14px;">
+    Fan auto-forces ON when temperature exceeds {{ threshold }}°C.
+  </p>
+</div>
 
 <script>
-function loadData() {
-    fetch('/api/data')
-    .then(res => res.json())
-    .then(data => {
-        document.getElementById("temp").innerText = data.temperature;
-        document.getElementById("tram").innerText = data.total_ram;
-        document.getElementById("uram").innerText = data.used_ram;
-        document.getElementById("ramp").innerText = data.ram_percent;
+async function fetchStatus(){
+    const res = await fetch("/status");
+    const s = await res.json();
 
-        document.getElementById("tdisk").innerText = data.total_disk;
-        document.getElementById("udisk").innerText = data.used_disk;
-        document.getElementById("diskp").innerText = data.disk_percent;
+    document.getElementById("cpu").innerText = s.cpu_percent + "%";
+    document.getElementById("temp").innerText = s.cpu_temp + "°C";
+    document.getElementById("ram").innerText = `${s.ram_used_mb}/${s.ram_total_mb}MB`;
+    document.getElementById("disk").innerText = `${s.disk_used_gb}/${s.disk_total_gb}GB`;
+    document.getElementById("fan_state").innerText =
+        s.fan_actual_on ? (s.fan_forced_auto ? "FAN ON (AUTO)" : "FAN ON") : "FAN OFF";
 
-        document.getElementById("fan").innerText = data.fan_state ? "ON" : "OFF";
-    });
+    document.getElementById("fan_manual_switch").checked = s.fan_manual_state;
 }
 
-setInterval(loadData, 2000);
-loadData();
+document.getElementById("apply").onclick = async ()=>{
+    const val = document.getElementById("fan_manual_switch").checked;
+    await fetch("/set_fan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manual_state: val })
+    });
+    fetchStatus();
+};
 
-function fanOn() { fetch('/fan/on'); }
-function fanOff() { fetch('/fan/off'); }
+setInterval(fetchStatus, 2000);
+fetchStatus();
 </script>
 
 </body>
